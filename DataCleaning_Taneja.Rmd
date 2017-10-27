@@ -1,0 +1,179 @@
+---
+title: "Data Cleaning in R"
+author: "Taneja Young"
+output: "word_document"
+---
+
+####Import file and name as data_frame
+
+```{r}
+PAR_ParkingTxns <- read.csv("P:/Capstone/PAR_ParkingTxns.csv")
+data_frame = PAR_ParkingTxns
+```
+
+####Check out stats on file.
+```{r}
+str(data_frame)
+View(summary(data_frame))
+```
+
+####Attach file.
+```{r}
+attach(data_frame)
+```
+
+####Load package DPLYR. This is for the rbind_all function, and also for filtering later on.
+```{r}
+install.packages("dplyr")
+library(dplyr)
+```
+
+
+```{r}
+# table_stats1 will show the number of elements, unique elements and NAs
+# in each column of a data table.
+# table_stats2 will list all unique values and show the frequency of 
+# each unique value in the column.
+
+data_frame_stats1 = data.frame()
+data_frame_stats2 = data.frame()
+
+#Let x be the column that you are interested in. 
+
+for (i in (1:ncol(data_frame)))
+{
+  x = data_frame[,i]
+
+  NumElements = length(x)
+  NumUniqueElements = length(unique(x))
+  UniqueElements = unique(x)
+  ElementFrequency = data.frame(table(x))
+  ElementFrequencyFrequency = data.frame(table(ElementFrequency$Freq))
+  NumNAs = sum(is.na(x))
+
+  y = data.frame((colnames(data_frame)[i]),NumElements,NumUniqueElements,NumNAs)
+  data_frame_stats1 = rbind(data_frame_stats1,y)
+  
+  z = data.frame((colnames(data_frame)[i]),ElementFrequency)
+  data_frame_stats2 = bind_rows(data_frame_stats2,z)
+}
+
+View(data_frame_stats1)
+View(data_frame_stats2)
+```  
+
+**PaymentNumber** 
+There are 174288 NA values.PaymentNumber is not always unique, but there are 168052 unique values out of a total of 364638 transactions. 
++166809 of these unique values occur only 1 time
++1239 values occur 2 times
++1 value occurs 3 times
++1 value occurs 4 times
++1 value - zero (0) - occurs 21056 times 
+>What does a zero payment value mean?
+
+
+**TicketType** 
+There are 7 unique ticket types: 1, 2, 4, 257, 258, 259.
+
+**EntryDeviceNumber**  
+There are 5 Entry Device Numbers: 101, 102, 301, 302, 701.
+>There are some zero's for EntryDeviceNumber. What are these?
+
+**CreditCardNumber**
+There are only 860 unique **CreditCardNumber**s. 
+>Does this mean that there are only 860 unique visitors to the parking garage?
+There are 176193 NA values under **CreditCardNumber**.
+Notice that all ticket types where there are credit card numbers, are TicketType 2.
+
+If there is **EntryDevice**==0, then there **EntryDateTime**==default, and if there is **PaymentNumber**==0 or ==NA, then **LastPayDate**==default. Therefore, it is clear that **EntryDateTime** is triggered by **EntryDevice**, and **LastPayDate** is triggered by **PaymentNumber**.
+
+
+```{r}
+View(table(TicketType,ExitDeviceNumber))
+```
+It seems that 301 and 302 are credit card only devices, whereas
+201, 202 and 203 take any payment method.
+
+Below, we try to determine whether there is a relationship between where someone enters and where (s)he leaves.
+```{r}
+heat.data = table(EntryDeviceNumber,ExitDeviceNumber)
+View(table(EntryDeviceNumber,CreditCardNumber,ExitDeviceNumber))
+```
+
+####Now that we have explored the data table, we generate a clean version of the table.
+
+```{r}
+install.packages("lubridate")
+library(lubridate)
+```
+
+```{r}
+cleaned_data<- as.data.frame(matrix(0, ncol = 0, nrow = nrow(data_frame)))
+
+cleaned_data$EntryDateTime=mdy_hm(data_frame$EntryDateTime)
+cleaned_data$EntryDay = wday(cleaned_data$EntryDateTime, label=TRUE)
+cleaned_data$EntryMonthDay = mday(cleaned_data$EntryDateTime)
+cleaned_data$EntryYearDay = yday(cleaned_data$EntryDateTime)
+
+cleaned_data$EntryMonth = month(cleaned_data$EntryDateTime, label=TRUE)
+cleaned_data$EntryYear = year(cleaned_data$EntryDateTime)
+cleaned_data$EntryHour = hour(cleaned_data$EntryDateTime)
+
+cleaned_data$ExitDateTime=mdy_hm(data_frame$ExitDateTime)
+cleaned_data$ExitDay = wday(cleaned_data$ExitDateTime, label=TRUE)
+cleaned_data$ExitMonthDay = mday(cleaned_data$ExitDateTime)
+cleaned_data$ExitYearDay = yday(cleaned_data$ExitDateTime)
+
+cleaned_data$ExitMonth = month(cleaned_data$ExitDateTime, label =TRUE)
+cleaned_data$ExitYear = year(cleaned_data$ExitDateTime)
+cleaned_data$ExitHour = hour(cleaned_data$ExitDateTime)
+
+cleaned_data$LastPayDateTime = mdy_hm(data_frame$LastPayDateTime)
+cleaned_data$TimeSpent_Hours = round((cleaned_data$ExitDateTime-cleaned_data$EntryDateTime)/3600,digits=2)
+cleaned_data$TimeSpentExiting_Hours = round((cleaned_data$ExitDateTime-cleaned_data$LastPayDateTime)/3600,digits=2)
+cleaned_data$SiteCarParkNumber =data_frame$SiteCarParkNumber
+cleaned_data$EntryDeviceNumber =data_frame$EntryDeviceNumber
+cleaned_data$ExitDeviceNumber = data_frame$ExitDeviceNumber
+cleaned_data$PaymentNumber =data_frame$PaymentNumber
+cleaned_data$CreditCardNumber =data_frame$CreditCardNumber
+cleaned_data$TicketType = data_frame$TicketType
+
+distinct_txns = distinct(cleaned_data)
+```
+
+
+####Group by credit card number where a unique visitor is a credit card number.
+
+
+####Subset by Parking Garage
+
+```{r}
+cleaned_data_dlt_rows = filter(cleaned_data,abs(TimeSpent_Hours)<200)
+cleaned_data_dlt_rows2 =filter(cleaned_data_dlt_rows, abs(TimeSpentExiting_Hours)<200)
+View(cleaned_data_dlt_rows2)
+creditcardnumbers = group_by(cleaned_data_dlt_rows, CreditCardNumber)
+uniquevisitors = summarise(creditcardnumbers, avg_TimeSpent_Hours = round(mean(TimeSpent_Hours),digits=2),
+                           min_TimeSpent_Hours = min(TimeSpent_Hours),
+                           max_TimeSpent_Hours = max(TimeSpent_Hours),
+                           total_TimeSpent_Hours = sum(TimeSpent_Hours),
+                           total_txns = n())
+View(uniquevisitors)
+```
+
+####hourly/daily exits
+```{r}
+hourly_exits = group_by(cleaned_data_dlt_rows, ExitDeviceNumber, ExitDay, ExitHour)
+total_hourly_exits = summarise(hourly_exits,
+                           count_hourly_exits = n())
+View(total_hourly_exits)
+plot(total_hourly_exits)
+```
+
+####hourly/daily entries
+```{r}
+hourly_entries = group_by(cleaned_data_dlt_rows, EntryDeviceNumber, EntryDay, EntryHour)
+total_hourly_entries = summarise(hourly_entries,
+                               count_hourly_entries = n())
+View(total_hourly_entries)
+plot(total_hourly_entries)
+```
